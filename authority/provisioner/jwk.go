@@ -68,8 +68,10 @@ func (p *JWK) Init(config Config) (err error) {
 	return err
 }
 
-// Authorize validates the given token.
-func (p *JWK) Authorize(token string) ([]SignOption, error) {
+// authorizeToken performs common jwt authorization actions and returns the
+// claims for case specific downstream parsing.
+// e.g. a Sign request will auth/validate different fields than a Revoke request.
+func (p *JWK) authorizeToken(token string) (*jwtPayload, error) {
 	jwt, err := jose.ParseSigned(token)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error parsing token")
@@ -98,6 +100,22 @@ func (p *JWK) Authorize(token string) ([]SignOption, error) {
 		return nil, errors.New("token subject cannot be empty")
 	}
 
+	return &claims, nil
+}
+
+// AuthorizeRevoke returns an error if the provisioner does not have rights to
+// revoke the certificate with serial number in the `sub` property.
+func (p *JWK) AuthorizeRevoke(token string) error {
+	_, err := p.authorizeToken(token)
+	return err
+}
+
+// AuthorizeSign validates the given token.
+func (p *JWK) AuthorizeSign(token string) ([]SignOption, error) {
+	claims, err := p.authorizeToken(token)
+	if err != nil {
+		return nil, err
+	}
 	// NOTE: This is for backwards compatibility with older versions of cli
 	// and certificates. Older versions added the token subject as the only SAN
 	// in a CSR by default.
@@ -122,10 +140,4 @@ func (p *JWK) AuthorizeRenewal(cert *x509.Certificate) error {
 		return errors.Errorf("renew is disabled for provisioner %s", p.GetID())
 	}
 	return nil
-}
-
-// AuthorizeRevoke returns an error if the provisioner does not have rights to
-// revoke the certificate with serial number in the `sub` property.
-func (p *JWK) AuthorizeRevoke(token string) error {
-	return errors.New("not implemented")
 }

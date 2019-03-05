@@ -15,7 +15,7 @@ type Interface interface {
 	GetType() Type
 	GetEncryptedKey() (kid string, key string, ok bool)
 	Init(config Config) error
-	Authorize(token string) ([]SignOption, error)
+	AuthorizeSign(token string) ([]SignOption, error)
 	AuthorizeRenewal(cert *x509.Certificate) error
 	AuthorizeRevoke(token string) error
 }

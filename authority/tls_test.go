@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/smallstep/assert"
 	"github.com/smallstep/certificates/authority/provisioner"
+	"github.com/smallstep/certificates/db"
 	"github.com/smallstep/cli/crypto/keys"
 	"github.com/smallstep/cli/crypto/tlsutil"
 	"github.com/smallstep/cli/crypto/x509util"
@@ -199,8 +200,36 @@ func TestSign(t *testing.T) {
 				},
 			}
 		},
+		"fail store cert in db": func(t *testing.T) *signTest {
+			csr := getCSR(t, priv)
+			_a := testAuthority(t)
+			_a.db = &MockAuthDB{
+				storeCertificate: func(crt *x509.Certificate) error {
+					return &apiError{errors.New("force"),
+						http.StatusInternalServerError,
+						context{"csr": csr, "signOptions": signOpts}}
+				},
+			}
+			return &signTest{
+				auth:      _a,
+				csr:       csr,
+				extraOpts: extraOpts,
+				signOpts:  signOpts,
+				err: &apiError{errors.New("sign: error storing certificate in db: force"),
+					http.StatusInternalServerError,
+					context{"csr": csr, "signOptions": signOpts},
+				},
+			}
+		},
 		"ok": func(t *testing.T) *signTest {
 			csr := getCSR(t, priv)
+			_a := testAuthority(t)
+			_a.db = &MockAuthDB{
+				storeCertificate: func(crt *x509.Certificate) error {
+					assert.Equals(t, crt.Subject.CommonName, "smallstep test")
+					return nil
+				},
+			}
 			return &signTest{
 				auth:      a,
 				csr:       csr,
@@ -350,7 +379,7 @@ func TestRenew(t *testing.T) {
 			}
 			return &renewTest{
 				crt: crtNoRenew,
-				err: &apiError{errors.New("renew is disabled for provisioner dev:IMi94WBNI6gP5cNHXlZYNUzvMjGdHyBRmFoo-lCEaqk"),
+				err: &apiError{errors.New("renew: renew is disabled for provisioner dev:IMi94WBNI6gP5cNHXlZYNUzvMjGdHyBRmFoo-lCEaqk"),
 					http.StatusUnauthorized, ctx},
 			}, nil
 		},
@@ -525,6 +554,88 @@ func TestGetTLSOptions(t *testing.T) {
 
 			opts := tc.auth.GetTLSOptions()
 			assert.Equals(t, opts, tc.opts)
+		})
+	}
+}
+
+func TestRevoke(t *testing.T) {
+	reasonCode := 2
+	reason := "bob was let go"
+	ctx := map[string]interface{}{
+		"serialNumber":  "sn",
+		"provisionerID": "provisioner-id",
+		"reasonCode":    reasonCode,
+		"reason":        reason,
+		"mTLS":          false,
+		"passiveOnly":   false,
+	}
+	type test struct {
+		a   *Authority
+		ri  RevokeRequestInfo
+		err *apiError
+	}
+	tests := map[string]func() test{
+		"error/nil db": func() test {
+			a := testAuthority(t)
+			a.db = new(db.NoopDB)
+			return test{
+				a: a,
+				ri: RevokeRequestInfo{
+					Serial:        "sn",
+					ProvisionerID: "provisioner-id",
+					ReasonCode:    reasonCode,
+					Reason:        reason,
+				},
+				err: &apiError{errors.New("revoke: no persistence layer configured"),
+					http.StatusNotImplemented, ctx},
+			}
+		},
+		"error/db revoke": func() test {
+			a := testAuthority(t)
+			a.db = &MockAuthDB{err: errors.New("force")}
+			return test{
+				a: a,
+				ri: RevokeRequestInfo{
+					Serial:        "sn",
+					ProvisionerID: "provisioner-id",
+					ReasonCode:    reasonCode,
+					Reason:        reason,
+				},
+				err: &apiError{errors.New("force"),
+					http.StatusInternalServerError, ctx},
+			}
+		},
+		"ok/successful passive revocation": func() test {
+			a := testAuthority(t)
+			a.db = &MockAuthDB{}
+			return test{
+				a: a,
+				ri: RevokeRequestInfo{
+					Serial:        "sn",
+					ProvisionerID: "provisioner-id",
+					ReasonCode:    reasonCode,
+					Reason:        reason,
+				},
+			}
+		},
+	}
+	for name, f := range tests {
+		tc := f()
+		t.Run(name, func(t *testing.T) {
+			if err := tc.a.Revoke(tc.ri); err != nil {
+				if assert.NotNil(t, tc.err) {
+					switch v := err.(type) {
+					case *apiError:
+						assert.HasPrefix(t, v.err.Error(), tc.err.Error())
+						assert.Equals(t, v.code, tc.err.code)
+						assert.Equals(t, v.context, tc.err.context)
+					default:
+						t.Errorf("unexpected error type: %T", v)
+					}
+				}
+			} else {
+				assert.Nil(t, tc.err)
+			}
 		})
 	}
 }

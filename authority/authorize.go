@@ -24,9 +24,10 @@ type Claims struct {
 	Nonce string   `json:"nonce,omitempty"`
 }
 
-// Authorize authorizes a signature request by validating and authenticating
-// a OTT that must be sent w/ the request.
-func (a *Authority) Authorize(ott string) ([]provisioner.SignOption, error) {
+// loadProvisionerByToken parses the token and returns the provisioner used to generate
+// the token. This method enforces the One-Time use policy (tokens can only be
+// used once).
+func (a *Authority) loadProvisionerByToken(ott string) (provisioner.Interface, error) {
 	var errContext = map[string]interface{}{"ott": ott}
 
 	// Validate payload
@@ -41,9 +42,10 @@ func (a *Authority) Authorize(ott string) ([]provisioner.SignOption, error) {
 	// before we can look up the provisioner.
 	var claims Claims
 	if err = token.UnsafeClaimsWithoutVerification(&claims); err != nil {
-		return nil, &apiError{err, http.StatusUnauthorized, errContext}
+		return nil, &apiError{errors.Wrap(err, "authorize"), http.StatusUnauthorized, errContext}
 	}
 
+	// TODO: use new persistence layer abstraction.
 	// Do not accept tokens issued before the start of the ca.
 	// This check is meant as a stopgap solution to the current lack of a persistence layer.
 	if a.config.AuthorityConfig != nil && !a.config.AuthorityConfig.DisableIssuedAtCheck {
@@ -78,13 +80,54 @@ func (a *Authority) Authorize(ott string) ([]provisioner.SignOption, error) {
 		}
 	}
 
-	// Call the provisioner Authorize method to get the signing options
-	opts, err := p.Authorize(ott)
+	return p, nil
+}
+
+// Authorize is a passthrough to AuthorizeSign.
+// NOTE: Authorize will be deprecated in a future release. Please use the
+// context specific Authorize[Sign|Revoke|etc.] going forwards.
+func (a *Authority) Authorize(ott string) ([]provisioner.SignOption, error) {
+	return a.AuthorizeSign(ott)
+}
+
+// AuthorizeSign authorizes a signature request by validating and authenticating
+// a OTT that must be sent w/ the request.
+func (a *Authority) AuthorizeSign(ott string) ([]provisioner.SignOption, error) {
+	p, err := a.loadProvisionerByToken(ott)
+	if err != nil {
+		return nil, err
+	}
+
+	var errContext = map[string]interface{}{"ott": ott}
+
+	// Call the provisioner AuthorizeSign method to apply provisioner specific
+	// auth claims and get the signing options.
+	opts, err := p.AuthorizeSign(ott)
 	if err != nil {
 		return nil, &apiError{errors.Wrap(err, "authorize"), http.StatusUnauthorized, errContext}
 	}
 
 	return opts, nil
+}
+
+// AuthorizeRevoke authorizes a signature request by validating and authenticating
+// a OTT that must be sent w/ the request.
+// Returns a tuple of the provisioner ID and error if one occurred.
+func (a *Authority) AuthorizeRevoke(ott string) (string, error) {
+	p, err := a.loadProvisionerByToken(ott)
+	if err != nil {
+		return "", err
+	}
+
+	var errContext = map[string]interface{}{"ott": ott}
+
+	// Call the provisioner AuthorizeRevoke to apply provisioner specific auth claims.
+	err = p.AuthorizeRevoke(ott)
+	if err != nil {
+		return "", &apiError{errors.Wrap(err, "authorize"), http.StatusUnauthorized, errContext}
+	}
+
+	return p.GetID(), nil
 }
 
 // authorizeRenewal tries to locate the step provisioner extension, and checks
@@ -94,17 +137,35 @@ func (a *Authority) Authorize(ott string) ([]provisioner.SignOption, error) {
 // TODO(mariano): should we authorize by default?
 func (a *Authority) authorizeRenewal(crt *x509.Certificate) error {
 	errContext := map[string]interface{}{"serialNumber": crt.SerialNumber.String()}
+
+	// Check the passive revocation table.
+	isRevoked, err := a.db.IsRevoked(crt.SerialNumber.String())
+	if err != nil {
+		return &apiError{
+			err:     errors.Wrap(err, "renew"),
+			code:    http.StatusInternalServerError,
+			context: errContext,
+		}
+	}
+	if isRevoked {
+		return &apiError{
+			err:     errors.New("renew: certificate has been revoked"),
+			code:    http.StatusUnauthorized,
+			context: errContext,
+		}
+	}
+
 	p, ok := a.provisioners.LoadByCertificate(crt)
 	if !ok {
 		return &apiError{
-			err:     errors.New("provisioner not found"),
+			err:     errors.New("renew: provisioner not found"),
 			code:    http.StatusUnauthorized,
 			context: errContext,
 		}
 	}
 	if err := p.AuthorizeRenewal(crt); err != nil {
 		return &apiError{
-			err:     err,
+			err:     errors.Wrap(err, "renew"),
 			code:    http.StatusUnauthorized,
 			context: errContext,
 		}

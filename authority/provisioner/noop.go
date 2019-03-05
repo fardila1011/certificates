@@ -24,7 +24,7 @@ func (p *noop) Init(config Config) error {
 	return nil
 }
 
-func (p *noop) Authorize(token string) ([]SignOption, error) {
+func (p *noop) AuthorizeSign(token string) ([]SignOption, error) {
 	return []SignOption{}, nil
 }
 

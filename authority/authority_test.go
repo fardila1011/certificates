@@ -39,8 +39,8 @@ func testAuthority(t *testing.T) *Authority {
 	}
 	c := &Config{
 		Address:          "127.0.0.1:443",
-		Root:             []string{"testdata/secrets/root_ca.crt"},
-		IntermediateCert: "testdata/secrets/intermediate_ca.crt",
+		Root:             []string{"testdata/certs/root_ca.crt"},
+		IntermediateCert: "testdata/certs/intermediate_ca.crt",
 		IntermediateKey:  "testdata/secrets/intermediate_ca_key",
 		DNSNames:         []string{"test.ca.smallstep.com"},
 		Password:         "pass",

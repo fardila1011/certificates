@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/smallstep/certificates/authority/provisioner"
+	"github.com/smallstep/certificates/db"
 	"github.com/smallstep/cli/crypto/pemutil"
 	"github.com/smallstep/cli/crypto/tlsutil"
 	"github.com/smallstep/cli/crypto/x509util"
@@ -111,6 +112,13 @@ func (a *Authority) Sign(csr *x509.CertificateRequest, signOpts provisioner.Opti
 			http.StatusInternalServerError, errContext}
 	}
 
+	if err = a.db.StoreCertificate(serverCert); err != nil {
+		if err != db.ErrNotImplemented {
+			return nil, nil, &apiError{errors.Wrap(err, "sign: error storing certificate in db"),
+				http.StatusInternalServerError, errContext}
+		}
+	}
+
 	return serverCert, caCert, nil
 }
 
@@ -192,6 +200,53 @@ func (a *Authority) Renew(oldCert *x509.Certificate) (*x509.Certificate, *x509.C
 	}
 
 	return serverCert, caCert, nil
+}
+
+// RevokeRequestInfo is a map representing the selected types of
+type RevokeRequestInfo struct {
+	Serial        string
+	ProvisionerID string
+	Reason        string
+	ReasonCode    int
+	MTLS          bool
+	PassiveOnly   bool
+}
+
+// Revoke revokes a certificate.
+//
+// NOTE: Only supports passive revocation - prevent existing certificates from
+// being renewed.
+//
+// TODO: Add OCSP and CRL support.
+func (a *Authority) Revoke(r RevokeRequestInfo) error {
+	var errContext = context{
+		"serialNumber":  r.Serial,
+		"provisionerID": r.ProvisionerID,
+		"reasonCode":    r.ReasonCode,
+		"reason":        r.Reason,
+		"passiveOnly":   r.PassiveOnly,
+		"mTLS":          r.MTLS,
+	}
+
+	rci := &db.RevokedCertificateInfo{
+		Serial:        r.Serial,
+		ProvisionerID: r.ProvisionerID,
+		ReasonCode:    r.ReasonCode,
+		Reason:        r.Reason,
+		MTLS:          r.MTLS,
+		RevokedAt:     time.Now().UTC(),
+	}
+
+	err := a.db.Revoke(rci)
+	switch err {
+	case nil:
+		return nil
+	case db.ErrNotImplemented:
+		return &apiError{errors.New("revoke: no persistence layer configured"),
+			http.StatusNotImplemented, errContext}
+	default:
+		return &apiError{err, http.StatusInternalServerError, errContext}
+	}
 }
 
 // GetTLSCertificate creates a new leaf certificate to be used by the CA HTTPS server.
