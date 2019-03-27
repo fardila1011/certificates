@@ -201,12 +201,10 @@ func TestJWK_AuthorizeRevoke(t *testing.T) {
 	assert.FatalError(t, err)
 	key1, err := decryptJSONWebKey(p1.EncryptedKey)
 	assert.FatalError(t, err)
-
-	// disable renewal
-	disable := true
-	p2.Claims = &Claims{DisableRenewal: &disable}
-	p2.claimer, err = NewClaimer(p2.Claims, globalProvisionerClaims)
+	t1, err := generateSimpleToken(p1.Name, testAudiences[0], key1)
 	assert.FatalError(t, err)
+	// invalid signature
+	failSig := t1[0 : len(t1)-2]
 
 	type args struct {
 		token string
@@ -245,7 +243,6 @@ func TestJWK_AuthorizeSign(t *testing.T) {
 
 	// invalid signature
 	failSig := t1[0 : len(t1)-2]
-	// no subject
 
 	type args struct {
 		token string
@@ -297,10 +294,9 @@ func TestJWK_AuthorizeRenewal(t *testing.T) {
 
 	// disable renewal
 	disable := true
-	p2.Claims = &Claims{
-		globalClaims:   &globalProvisionerClaims,
-		DisableRenewal: &disable,
-	}
+	p2.Claims = &Claims{DisableRenewal: &disable}
+	p2.claimer, err = NewClaimer(p2.Claims, globalProvisionerClaims)
+	assert.FatalError(t, err)
 
 	type args struct {
 		cert *x509.Certificate

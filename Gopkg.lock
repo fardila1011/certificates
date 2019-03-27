@@ -298,7 +298,15 @@
     "utils",
   ]
   pruneopts = "UT"
-  revision = "a2e2d27fd5eff22ba94b1f2bd2fc946f5bb7f041"
+  revision = "b8972dd3035caefb9f493c4a2c664cc6cf557f93"
+
+[[projects]]
+  branch = "master"
+  digest = "1:fd8d9eb07509d8ef47fc82c99646f0b2203b2ba3c240ba77d8c457bb6109836d"
+  name = "github.com/smallstep/nosql"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "d8f68d14f9ae04e0991dce06b44768f2d38dccf8"
 
 [[projects]]
   branch = "master"
