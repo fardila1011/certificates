@@ -487,6 +487,7 @@ type mockAuthority struct {
 	sign                         func(cr *x509.CertificateRequest, opts provisioner.Options, signOpts ...provisioner.SignOption) (*x509.Certificate, *x509.Certificate, error)
 	renew                        func(cert *x509.Certificate) (*x509.Certificate, *x509.Certificate, error)
 	loadProvisionerByCertificate func(cert *x509.Certificate) (provisioner.Interface, error)
+	loadProvisionerByToken       func(token string) (provisioner.Interface, error)
 	getProvisioners              func(nextCursor string, limit int) (provisioner.List, string, error)
 	revoke                       func(authority.RevokeRequestInfo) error
 	getEncryptedKey              func(kid string) (string, error)
@@ -544,6 +545,13 @@ func (m *mockAuthority) GetProvisioners(nextCursor string, limit int) (provision
 func (m *mockAuthority) LoadProvisionerByCertificate(cert *x509.Certificate) (provisioner.Interface, error) {
 	if m.loadProvisionerByCertificate != nil {
 		return m.loadProvisionerByCertificate(cert)
+	}
+	return m.ret1.(provisioner.Interface), m.err
+}
+
+func (m *mockAuthority) LoadProvisionerByToken(token string) (provisioner.Interface, error) {
+	if m.loadProvisionerByCertificate != nil {
+		return m.loadProvisionerByToken(token)
 	}
 	return m.ret1.(provisioner.Interface), m.err
 }
