@@ -36,6 +36,14 @@ func testAuthority(t *testing.T) *Authority {
 				DisableRenewal: &disableRenewal,
 			},
 		},
+		&provisioner.JWK{
+			Name: "renew_disabled",
+			Type: "JWK",
+			Key:  maxjwk,
+			Claims: &provisioner.Claims{
+				DisableRenewal: &disableRenewal,
+			},
+		},
 	}
 	c := &Config{
 		Address:          "127.0.0.1:443",

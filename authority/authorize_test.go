@@ -8,7 +8,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/smallstep/assert"
-	"github.com/smallstep/certificates/authority/provisioner"
 	"github.com/smallstep/cli/crypto/pemutil"
 	"github.com/smallstep/cli/crypto/randutil"
 	"github.com/smallstep/cli/jose"
@@ -464,6 +463,9 @@ func TestAuthority_authorizeRenewal(t *testing.T) {
 	fooCrt, err := pemutil.ReadCertificate("testdata/certs/foo.crt")
 	assert.FatalError(t, err)
 
+	renewDisabledCrt, err := pemutil.ReadCertificate("testdata/certs/renew-disabled.crt")
+	assert.FatalError(t, err)
+
 	otherCrt, err := pemutil.ReadCertificate("testdata/certs/provisioner-not-found.crt")
 	assert.FatalError(t, err)
 
@@ -523,19 +525,12 @@ func TestAuthority_authorizeRenewal(t *testing.T) {
 					return false, nil
 				},
 			}
-			p, ok := a.provisioners.LoadByCertificate(fooCrt)
-			assert.Fatal(t, ok)
-			pJWK, ok := p.(*provisioner.JWK)
-			assert.Fatal(t, ok)
-
-			b := true
-			pJWK.Claims.DisableRenewal = &b
 
 			return &authorizeTest{
 				auth: a,
-				crt:  fooCrt,
-				err: &apiError{errors.New("renew: renew is disabled for provisioner step-cli:4UELJx8e0aS9m0CH3fZ0EB7D5aUPICb759zALHFejvc"),
-					http.StatusUnauthorized, context{"serialNumber": "102012593071130646873265215610956555026"}},
+				crt:  renewDisabledCrt,
+				err: &apiError{errors.New("renew: renew is disabled for provisioner renew_disabled:IMi94WBNI6gP5cNHXlZYNUzvMjGdHyBRmFoo-lCEaqk"),
+					http.StatusUnauthorized, context{"serialNumber": "119772236532068856521070735128919532568"}},
 			}
 		},
 		"ok": func(t *testing.T) *authorizeTest {
